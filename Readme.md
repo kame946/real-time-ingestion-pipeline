@@ -201,68 +201,65 @@ SELECT COUNT(*) FROM streaming_demo.raw_orders;
 Rows should continuously increase while publisher is running.
 
 ## Common Deployment Issues & Fixes
-1. Staging File Error (pipeline.pb)
+### 1. Staging File Error (pipeline.pb)
 
-Cause:
+#### Cause:
 
 Bucket region mismatch
 
 Missing storage permissions
 
-Fix:
+#### Fix:
 
 Ensure bucket region matches Dataflow region
 
 Grant roles/storage.objectAdmin
 
-2. Pub/Sub Permission Errors
+### 2. Pub/Sub Permission Errors
 
-Cause:
+#### Cause:
 
 Worker service account lacks subscription access
 
 Fix:
 
-Grant roles/pubsub.subscriber
+#### Grant roles/pubsub.subscriber
 
 Use manual subscription instead of topic auto-creation
 
-3. Preflight Validation Failure
+### 3. Preflight Validation Failure
 
-Cause:
+#### Cause:
 
 Missing IAM permissions
 
-Fix:
+#### Fix:
 
 Verify required roles assigned to compute service account
 
-Performance & Design Decisions
+## Performance & Design Decisions
 
-Used partitioning on event_time for query efficiency
+1. Used partitioning on event_time for query efficiency
 
-Used clustering on product_id for analytical filtering
+2. Used clustering on product_id for analytical filtering
 
-Used manual subscription for IAM clarity and production realism
+3. Used manual subscription for IAM clarity and production realism
 
-Leveraged Dataflow Streaming Engine for autoscaling
+4. Leveraged Dataflow Streaming Engine for autoscaling
 
-Designed for sub-60 second processing latency
+5. Designed for sub-60 second processing latency
 
-Next Enhancements
+## Next Enhancements
 
-Event-time windowing (1-minute fixed windows)
+1. Event-time windowing (1-minute fixed windows)
 
-Aggregations (sales per product per minute)
+2. Aggregations (sales per product per minute)
 
-Dead-letter queue for malformed events
+3. Dead-letter queue for malformed events
 
-Late data handling
+4. Late data handling
 
-Data quality validation
+5. Data quality validation
 
-Materialized views for BI dashboards
+6. Materialized views for BI dashboards
 
-## Resume-Ready Summary
-
-Designed and deployed a real-time streaming analytics platform on GCP using Pub/Sub, Dataflow (Apache Beam), and BigQuery. Implemented partitioned and clustered warehouse tables with secure IAM configuration and achieved near real-time ingestion and processing.
