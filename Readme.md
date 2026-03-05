@@ -11,7 +11,6 @@ This repository provides a minimal example for generating events, validating and
 
 ![Near Real-Time Analytics Architecture](assets/architecture.png)
 
-Place the architecture diagram at `assets/architecture.png` (path relative to the repo root). If you don't have the image, remove the image reference or add your own.
 
 ---
 
