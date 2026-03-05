@@ -1,86 +1,103 @@
-## Near Real-Time Analytics Platform (GCP)
+#  Realtime Ingestion Simulator
 
-## Overview
 
-This project implements a near real-time streaming analytics pipeline on Google Cloud Platform using Pub/Sub, Dataflow (Apache Beam), and BigQuery.
+Lightweight simulator and streaming pipeline demonstrating a near real-time ingestion flow using Pub/Sub → Dataflow (Apache Beam) → BigQuery.
 
-The system simulates e-commerce order events and processes them in streaming mode with sub-minute latency.
+This repository provides a minimal example for generating events, validating and processing them with Apache Beam, and writing results to BigQuery and a dead-letter Pub/Sub topic.
 
 ---
 
 ## Architecture
 
-Event Generator (Python)
-↓
-Pub/Sub Topic
-↓
-Dataflow (Apache Beam - Streaming)
-↓
-BigQuery (Partitioned + Clustered Table)
+![Near Real-Time Analytics Architecture](assets/architecture.png)
 
-
-### Components
-
-- **Pub/Sub** – Event ingestion layer  
-- **Dataflow (Apache Beam)** – Streaming data processing  
-- **BigQuery** – Analytics storage layer  
-- **Cloud Storage (GCS)** – Dataflow staging and temp storage  
+Place the architecture diagram at `assets/architecture.png` (path relative to the repo root). If you don't have the image, remove the image reference or add your own.
 
 ---
 
-## Features
-
-- Real-time event ingestion  
-- Streaming pipeline deployment using DataflowRunner  
-- Automatic scaling via Dataflow Streaming Engine  
-- Partitioned BigQuery table (by event_time)  
-- Clustered BigQuery table (by product_id)  
-- IAM-based secure service account configuration  
-- Manual subscription management (production-style setup)  
-
----
-
-## Project Structure
-
-
+## Repository layout
 
 realtime_ingestion_sim/
-│
-├── publisher.py # Simulates order events
-├── pipeline.py # Apache Beam streaming pipeline
-├── requirements.txt
-└── README.md
 
+- `producer.py`  — publishes simulated order events to a Pub/Sub topic
+- `pipeline.py`  — Apache Beam streaming pipeline (reads Pub/Sub, writes BigQuery & DLQ)
+- `Readme.md`    — existing project README
+- `README_GITHUB.md` — this GitHub-ready README
 
 ---
 
-# Setup Instructions
+## Quickstart (local / small-scale)
 
-## 1. Enable Required APIs
+1. Create and activate a virtual environment (recommended):
 
 ```bash
-gcloud services enable dataflow.googleapis.com
-gcloud services enable pubsub.googleapis.com
-gcloud services enable bigquery.googleapis.com
-gcloud services enable storage.googleapis.com
+python -m venv .venv
+source .venv/bin/activate
 ```
-## 2. Create Pub/Sub Topic
+
+2. Install dependencies:
+
 ```bash
-gcloud pubsub topics create orders-topic
+pip install -r requirements.txt
 ```
-## 3. Create Subscription (Recommended Approach)
+
+If you don't have `requirements.txt`, you can install the primary dependencies directly:
+
 ```bash
-gcloud pubsub subscriptions create orders-sub \
-  --topic=orders-topic
+pip install google-cloud-pubsub apache-beam[gcp]
 ```
 
-This avoids permission issues caused by automatic subscription creation.
+3. Configure environment variables (replace placeholders):
 
-## 4. Create BigQuery Dataset
-bq mk streaming_demo
+```bash
+export PROJECT=YOUR_PROJECT_ID
+export PUBSUB_TOPIC=orders-topic
+export PUBSUB_SUBSCRIPTION=projects/${PROJECT}/subscriptions/orders-sub
+export TEMP_BUCKET=YOUR_BUCKET_NAME
+export REGION=us-central1
+```
 
-## 5. Create Partitioned & Clustered Table
-```bash CREATE TABLE streaming_demo.raw_orders (
+4. Authenticate with Google Cloud for local testing:
+
+```bash
+gcloud auth application-default login
+```
+
+5. Run the event producer (publishes one event per second):
+
+```bash
+python producer.py
+```
+
+6. Deploy the streaming pipeline to Dataflow (or run locally with `DirectRunner`):
+
+```bash
+python pipeline.py
+```
+
+Notes:
+
+- `producer.py` and `pipeline.py` include placeholder defaults for `PROJECT` and `TEMP_BUCKET`. Replace `YOUR_PROJECT_ID` and `YOUR_BUCKET_NAME` with your actual GCP project id and bucket name, or set the corresponding environment variables before running.
+- To run the Beam pipeline locally for testing, change the `runner` in `PipelineOptions` inside `pipeline.py` to `DirectRunner`.
+
+---
+
+## GCP setup (high level)
+
+- Enable required APIs: Dataflow, Pub/Sub, BigQuery, Cloud Storage.
+- Create Pub/Sub topic and subscription: `orders-topic`, `orders-sub` (manual subscription recommended).
+- Create BigQuery dataset `streaming_demo` and tables:
+  - `raw_orders` partitioned by DATE(event_time) and clustered by `product_id`.
+  - `product_sales_1min` for 1-minute aggregates.
+- Create a regional GCS bucket for Dataflow staging/temp matching your `REGION`.
+- Ensure the Dataflow service account has `storage.objectAdmin`, `dataflow.worker`, `bigquery.dataEditor`, and `pubsub.subscriber` roles.
+
+### Example BigQuery DDL
+
+Use the `bq` CLI or the console to create the raw table:
+
+```sql
+CREATE TABLE streaming_demo.raw_orders (
   order_id STRING,
   user_id STRING,
   product_id STRING,
@@ -91,175 +108,31 @@ PARTITION BY DATE(event_time)
 CLUSTER BY product_id;
 ```
 
-## 6. Create Regional GCS Bucket (Must Match Dataflow Region)
-```bash 
-gsutil mb -l us-central1 gs://YOUR_BUCKET_NAME 
-```
+---
 
+## Dead-letter handling
 
-#### Verify region:
-```bash
-gsutil ls -L -b gs://YOUR_BUCKET_NAME
-```
+- Malformed or invalid messages are emitted to a dead-letter topic configured by `DLQ_TOPIC` in `pipeline.py` (default: `projects/${PROJECT}/topics/orders-dead-letter`).
 
-Location constraint must equal Dataflow region.
+---
 
-## 7. Grant Required IAM Roles to Dataflow Service Account
+## Schema
 
-#### Identify project number:
-```bash
-gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)'
-```
+- Raw orders (`raw_orders`): `order_id:STRING,user_id:STRING,product_id:STRING,amount:FLOAT,event_time:TIMESTAMP`
+- Aggregates (`product_sales_1min`): `product_id:STRING,window_start:TIMESTAMP,total_sales:FLOAT,order_count:INTEGER`
 
-#### Service account format:
+---
 
-PROJECT_NUMBER-compute@developer.gserviceaccount.com
+## Development & testing
 
+- To test transforms locally, set `runner` to `DirectRunner` in `pipeline.py` and provide a local Pub/Sub emulator or replace `ReadFromPubSub` with test PCollections.
+- Consider adding a `requirements.txt` and a small integration test that runs the pipeline with `DirectRunner`.
 
-Grant roles:
-```bash
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role="roles/storage.objectAdmin"
+---
 
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role="roles/dataflow.worker"
+## Contributing
 
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role="roles/bigquery.dataEditor"
+Contributions are welcome. Please open issues or PRs for bugs and enhancements.
 
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role="roles/pubsub.subscriber"
-
-gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
-  --member="serviceAccount:PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
-  --role="roles/pubsub.viewer"
-```
-### Running the Event Publisher
-
-Install dependencies:
-```bash
-pip install google-cloud-pubsub faker
-```
-
-Authenticate:
-```bash
-gcloud auth application-default login
-```
-
-Run:
-```bash
-python publisher.py
-```
-
-This continuously publishes simulated order events to Pub/Sub.
-
-Deploying the Streaming Pipeline
-
-Install Beam:
-```bash
-pip install apache-beam[gcp]
-```
-
-Ensure Python 3.10 or 3.11 is recommended for stability.
-
-Deploy:
-```bash
-python pipeline.py
-```
-
-### The pipeline will:
-
-1. Read from Pub/Sub subscription
-
-2. Parse JSON events
-
-3. Write to BigQuery
-
-4. Run in streaming mode
-
-5. Monitoring the Pipeline
-
-6. Go to Google Cloud Console
-
-7. Navigate to Dataflow → Jobs
-
-8. Verify job status is Running
-
-9. Monitor worker scaling and throughput
-
-10. Verifying Data in BigQuery
-
-#### Run:
-```bash
-SELECT COUNT(*) FROM streaming_demo.raw_orders;
-```
-
-Rows should continuously increase while publisher is running.
-
-## Common Deployment Issues & Fixes
-### 1. Staging File Error (pipeline.pb)
-
-#### Cause:
-
-Bucket region mismatch
-
-Missing storage permissions
-
-#### Fix:
-
-Ensure bucket region matches Dataflow region
-
-Grant roles/storage.objectAdmin
-
-### 2. Pub/Sub Permission Errors
-
-#### Cause:
-
-Worker service account lacks subscription access
-
-Fix:
-
-#### Grant roles/pubsub.subscriber
-
-Use manual subscription instead of topic auto-creation
-
-### 3. Preflight Validation Failure
-
-#### Cause:
-
-Missing IAM permissions
-
-#### Fix:
-
-Verify required roles assigned to compute service account
-
-## Performance & Design Decisions
-
-1. Used partitioning on event_time for query efficiency
-
-2. Used clustering on product_id for analytical filtering
-
-3. Used manual subscription for IAM clarity and production realism
-
-4. Leveraged Dataflow Streaming Engine for autoscaling
-
-5. Designed for sub-60 second processing latency
-
-## Next Enhancements
-
-1. Event-time windowing (1-minute fixed windows)
-
-2. Aggregations (sales per product per minute)
-
-3. Dead-letter queue for malformed events
-
-4. Late data handling
-
-5. Data quality validation
-
-6. Materialized views for BI dashboards
+---
 
